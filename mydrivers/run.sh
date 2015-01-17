@@ -4,7 +4,7 @@ file_push()
 {
     if [ -f "$1" ]; then
 	echo "push $1"
-	adb push $1 /data
+	adb push $1 /data/ko/
     else
 	echo "### "
 	echo "### Error: Cannot find $1!"
@@ -12,12 +12,9 @@ file_push()
     fi
 }
 
-#TARGET=hello.ko
 file_push hello.ko;
 
-#TARGET=ablock.ko
 file_push ablock.ko;
 
-#TARGET=script.sh
-file_push script.sh;
+file_push achar.ko;
 

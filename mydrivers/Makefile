@@ -15,12 +15,12 @@ modules:
 	$(MAKE) -C $(KERNEL_BUILD) M=$(PWD) ARCH=arm CROSS_COMPILE=arm-eabi- modules
 
 clean:
-	rm -rf *.o *~ core .depend .*.cmd *.ko *.unsigned .*.o.d *.mod.c .tmp_versions modules.order Module.symvers
+	rm -rf *.o *~ core .depend .*.cmd *.ko .*.o.d *.mod.c .tmp_versions modules.order Module.symvers
 
 .PHONY: modules clean 
 
 else
-    obj-m := hello.o ablock.o
+    obj-m := hello.o ablock.o achar.o
 endif
 
 
