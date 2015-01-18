@@ -15,7 +15,7 @@
 #define ab_dbg(fmt, args...) printk(KERN_NOTICE	fmt, ## args)
 
 #define DRIVER_NAME "achar"
-#define CLASS_NAME "achar"
+#define CLASS_NAME "aclass"
 
 static int achar_major = 0;
 static int achar_minor = 0;
@@ -31,6 +31,8 @@ struct achar_qset {
     struct achar_qset *next;
 };
 
+struct class *aclass; /* class structure */
+
 struct achar_dev {
     struct achar_qset *data;  /* Pointer to first quantum set */
     int quantum;              /* the current quantum size */
@@ -40,7 +42,6 @@ struct achar_dev {
     struct semaphore sem;     /* mutual exclusion semaphore     */
     struct cdev cdev;	        /* Char device structure		*/
     struct device *device;    /* device structure */
-    struct class *class;      /* class structure */
     char name[32];            /* device name */
 };
 
@@ -141,21 +142,10 @@ static int achar_setup_cdev(struct achar_dev *dev, int index)
     ab_dbg("achar - %s(dev, %d)\n", __func__, index);
 
     snprintf(dev->name, 32, "achar%c", index + '0');
-    /*
-     * Create class
-     */
-    dev->class = class_create(THIS_MODULE, dev->name);
-    if (IS_ERR(dev->class)) {
-        err = PTR_ERR(dev->class);
-        printk(KERN_ERR "%s: couldn't create class rc = %d\n",
-                dev->name, err);
-        goto error_class_create;
-    }
-
     /* 
      * Create device
      */
-    dev->device = device_create(dev->class, NULL, devno, NULL,
+    dev->device = device_create(aclass, NULL, devno, NULL,
             dev->name);
     if (IS_ERR(dev->device)) {
         err = PTR_ERR(dev->device);
@@ -178,10 +168,8 @@ static int achar_setup_cdev(struct achar_dev *dev, int index)
     return err;
 
 error_cdev_add:
-    device_destroy(dev->class, devno);
+    device_destroy(aclass, devno);
 error_class_device_create:
-    class_destroy(dev->class);
-error_class_create:
     return err;
 }
 
@@ -198,11 +186,12 @@ void achar_cleanup_module(void)
             achar_trim(achar_devices + i);
             cdev_del(&achar_devices[i].cdev);
             devno = MKDEV(achar_major, achar_minor + i);
-            device_destroy(achar_devices[i].class, devno);
-            class_destroy(achar_devices[i].class);
+            device_destroy(aclass, devno);
         }
         kfree(achar_devices);
     }
+
+    class_destroy(aclass);
 
 #ifdef SCULL_DEBUG /* use proc only if debugging */
     achar_remove_proc();
@@ -222,7 +211,7 @@ void achar_cleanup_module(void)
 
 int achar_init_module(void)
 {
-    int result, i;
+    int result, i, err;
     dev_t dev = 0;
 
     ab_dbg("achar - %s()\n", __func__);
@@ -245,6 +234,17 @@ int achar_init_module(void)
     }
     ab_dbg("achar - %s: char_major = %d\n", __func__, achar_major);
 
+    /*
+     * Create class
+     */
+    aclass = class_create(THIS_MODULE, CLASS_NAME);
+    if (IS_ERR(aclass)) {
+        err = PTR_ERR(aclass);
+        printk(KERN_ERR "%s: couldn't create class rc = %d\n",
+                CLASS_NAME, err);
+        goto error_class_create;
+    }
+
     /* 
      * allocate the devices -- we can't have them static, as the number
      * can be specified at load time
@@ -252,7 +252,7 @@ int achar_init_module(void)
     achar_devices = kmalloc(achar_nr_devs * sizeof(struct achar_dev), GFP_KERNEL);
     if (!achar_devices) {
         result = -ENOMEM;
-        goto fail;  /* Make this more graceful */
+        goto error_achar_devices_allc;  /* Make this more graceful */
     }
     memset(achar_devices, 0, achar_nr_devs * sizeof(struct achar_dev));
 
@@ -279,7 +279,8 @@ int achar_init_module(void)
 
     return 0; /* succeed */
 
-fail:
+error_achar_devices_allc:
+error_class_create:
     achar_cleanup_module();
     return result;
 }
