@@ -154,6 +154,18 @@ static int achar_setup_cdev(struct achar_dev *dev, int index)
         goto error_class_device_create;
     }
 
+    /*
+     * Useless, just for study
+     */
+    if (dev->device->kobj.name) {
+        struct kobject *kp = &(dev->device->kobj);
+        for (;kp->parent != NULL; kp = kp->parent) {
+            dev_printk(KERN_ERR, dev->device, "kp->name: %s\n",
+                    kp->name);
+        }
+    } else {
+        dev_printk(KERN_ERR, dev->device, "kobj = NULL\n");
+    }
 
     cdev_init(&dev->cdev, &achar_fops);
     dev->cdev.owner = THIS_MODULE;
