@@ -8,10 +8,14 @@
 #include <linux/init.h>
 
 #include <linux/slab.h>		/* kmalloc() */
-#include <linux/fs.h>		/* everything... */
+#include <linux/fs.h>		  /* everything... */
 #include <linux/cdev.h>
+#include <linux/device.h> /* class_create() */
 
 #define ab_dbg(fmt, args...) printk(KERN_NOTICE	fmt, ## args)
+
+#define DRIVER_NAME "achar"
+#define CLASS_NAME "achar"
 
 static int achar_major = 0;
 static int achar_minor = 0;
@@ -34,7 +38,10 @@ struct achar_dev {
     unsigned long size;       /* amount of data stored here */
     unsigned int access_key;  /* used by acharuid and acharpriv */
     struct semaphore sem;     /* mutual exclusion semaphore     */
-    struct cdev cdev;	  /* Char device structure		*/
+    struct cdev cdev;	        /* Char device structure		*/
+    struct device *device;    /* device structure */
+    struct class *class;      /* class structure */
+    char name[32];            /* device name */
 };
 
 struct achar_dev *achar_devices;	/* allocated in achar_init_module */
@@ -65,6 +72,7 @@ int achar_trim(struct achar_dev *dev)
     dev->quantum = achar_quantum;
     dev->qset = achar_qset;
     dev->data = NULL;
+
     return 0;
 }
 /*
@@ -125,25 +133,62 @@ struct file_operations achar_fops = {
 /*
  * Set up the char_dev structure for this device.
  */
-static void achar_setup_cdev(struct achar_dev *dev, int index)
+static int achar_setup_cdev(struct achar_dev *dev, int index)
 {
-    int err, devno = MKDEV(achar_major, achar_minor + index);
+    int err = 0; 
+    dev_t devno = MKDEV(achar_major, achar_minor + index);
 
     ab_dbg("achar - %s(dev, %d)\n", __func__, index);
+
+    snprintf(dev->name, 32, "achar%c", index + '0');
+    /*
+     * Create class
+     */
+    dev->class = class_create(THIS_MODULE, dev->name);
+    if (IS_ERR(dev->class)) {
+        err = PTR_ERR(dev->class);
+        printk(KERN_ERR "%s: couldn't create class rc = %d\n",
+                dev->name, err);
+        goto error_class_create;
+    }
+
+    /* 
+     * Create device
+     */
+    dev->device = device_create(dev->class, NULL, devno, NULL,
+            dev->name);
+    if (IS_ERR(dev->device)) {
+        err = PTR_ERR(dev->device);
+        printk(KERN_ERR "%s: device_create failed %d\n",
+                dev->name, err);
+        goto error_class_device_create;
+    }
+
 
     cdev_init(&dev->cdev, &achar_fops);
     dev->cdev.owner = THIS_MODULE;
     dev->cdev.ops = &achar_fops;
     err = cdev_add (&dev->cdev, devno, 1);
     /* Fail gracefully if need be */
-    if (err)
+    if (err) {
         printk(KERN_NOTICE "Error %d adding achar%d", err, index);
+        goto error_cdev_add;
+    }
+
+    return err;
+
+error_cdev_add:
+    device_destroy(dev->class, devno);
+error_class_device_create:
+    class_destroy(dev->class);
+error_class_create:
+    return err;
 }
 
 void achar_cleanup_module(void)
 {
     int i;
-    dev_t devno = MKDEV(achar_major, achar_minor);
+    dev_t devno;
 
     ab_dbg("achar - %s()\n", __func__);
 
@@ -152,6 +197,9 @@ void achar_cleanup_module(void)
         for (i = 0; i < achar_nr_devs; i++) {
             achar_trim(achar_devices + i);
             cdev_del(&achar_devices[i].cdev);
+            devno = MKDEV(achar_major, achar_minor + i);
+            device_destroy(achar_devices[i].class, devno);
+            class_destroy(achar_devices[i].class);
         }
         kfree(achar_devices);
     }
@@ -161,6 +209,7 @@ void achar_cleanup_module(void)
 #endif
 
     /* cleanup_module is never called if registering failed */
+    devno = MKDEV(achar_major, achar_minor);
     unregister_chrdev_region(devno, achar_nr_devs);
 
     /* and call the cleanup functions for friend devices */
@@ -184,10 +233,10 @@ int achar_init_module(void)
      */
     if (achar_major) {
         dev = MKDEV(achar_major, achar_minor);
-        result = register_chrdev_region(dev, achar_nr_devs, "achar");
+        result = register_chrdev_region(dev, achar_nr_devs, DRIVER_NAME);
     } else {
         result = alloc_chrdev_region(&dev, achar_minor, achar_nr_devs,
-                "achar");
+                DRIVER_NAME);
         achar_major = MAJOR(dev);
     }
     if (result < 0) {
