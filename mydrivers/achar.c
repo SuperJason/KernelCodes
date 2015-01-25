@@ -12,6 +12,8 @@
 #include <linux/cdev.h>
 #include <linux/device.h> /* class_create() */
 
+#include "abus.h"
+
 #define ab_dbg(fmt, args...) printk(KERN_NOTICE	fmt, ## args)
 
 #define DRIVER_NAME "achar"

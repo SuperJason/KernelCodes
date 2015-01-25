@@ -20,7 +20,7 @@ clean:
 .PHONY: modules clean 
 
 else
-    obj-m := hello.o ablock.o achar.o
+    obj-m := hello.o ablock.o achar.o abus.o
 endif
 
 
